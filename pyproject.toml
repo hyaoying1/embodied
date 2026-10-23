@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fast-slow-embodied-demo"
+version = "0.1.0"
+description = "A fast-slow embodied delegation demo with an optional AI2-THOR 3D backend."
+requires-python = ">=3.9"
+
+[project.optional-dependencies]
+thor = ["ai2thor==5.0.0"]
+
+[project.scripts]
+fast-slow-demo = "fast_slow_agent.cli:main"
+fast-slow-dashboard = "fast_slow_agent.dashboard:main"
+fast-slow-thor-demo = "fast_slow_agent.thor_demo:main"
+fast-slow-local-thor-demo = "fast_slow_agent.thor_local_demo:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

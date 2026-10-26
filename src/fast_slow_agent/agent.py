@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .interfaces import AgentEnvironment, SlowPlanner
+from .interfaces import AgentEnvironment, SlowPlanner, SlowPlannerAbstained, SlowPlannerError
 from .memory import BeliefMemory
 from .models import Action, ActionKind, Decision, EpisodeResult, TraceEntry
 from .planner import OracleSlowPlanner
@@ -124,7 +124,54 @@ class FastSlowAgent(BaseAgent):
             decision = self.router.choose(environment, memory, slow_calls)
             if decision.action.kind is ActionKind.DELEGATE:
                 slow_calls += 1
-                plan = self.slow_planner.resolve(environment)
+                try:
+                    plan = self.slow_planner.resolve(environment)
+                except SlowPlannerAbstained as error:
+                    abstain_reason = f"Slow Brain ({self.slow_planner.name}) abstained: {error}"
+                    abstain_decision = Decision(
+                        action=Action(ActionKind.ABSTAIN),
+                        confidence=0.0,
+                        mode="abstain",
+                        reason=abstain_reason,
+                    )
+                    self._trace(
+                        trace,
+                        environment,
+                        abstain_decision,
+                        success=True,
+                        message=abstain_reason,
+                        memory=memory,
+                        slow_calls=slow_calls,
+                    )
+                    return EpisodeResult(
+                        agent_name=self.name,
+                        success=False,
+                        failure_reason=abstain_reason,
+                        steps=environment.step_count,
+                        slow_calls=slow_calls,
+                        trace=trace,
+                        event_triggered=environment.event_triggered,
+                    )
+                except (SlowPlannerError, RuntimeError) as error:
+                    failure_reason = f"Slow Brain ({self.slow_planner.name}) failed: {error}"
+                    self._trace(
+                        trace,
+                        environment,
+                        decision,
+                        success=False,
+                        message=failure_reason,
+                        memory=memory,
+                        slow_calls=slow_calls,
+                    )
+                    return EpisodeResult(
+                        agent_name=self.name,
+                        success=False,
+                        failure_reason=failure_reason,
+                        steps=environment.step_count,
+                        slow_calls=slow_calls,
+                        trace=trace,
+                        event_triggered=environment.event_triggered,
+                    )
                 memory.update_from_slow_plan(
                     plan.target_location,
                     environment.step_count,

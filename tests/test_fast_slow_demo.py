@@ -5,6 +5,7 @@ from fast_slow_agent import (
     AlwaysFastAgent,
     FastSlowAgent,
     HouseholdEnvironment,
+    SlowPlannerAbstained,
     run_scenario,
 )
 from fast_slow_agent.environment import LEFT_CABINET, RIGHT_CABINET, TARGET_OBJECT
@@ -38,6 +39,20 @@ class FixedSlowPlanner:
             confidence=0.8,
             source="test",
         )
+
+
+class FailingSlowPlanner:
+    name = "failing_slow_planner"
+
+    def resolve(self, environment) -> SlowPlan:
+        raise RuntimeError("vision request timed out")
+
+
+class AbstainingSlowPlanner:
+    name = "abstaining_slow_planner"
+
+    def resolve(self, environment) -> SlowPlan:
+        raise SlowPlannerAbstained("No high-confidence visual candidate.")
 
 
 class FastSlowDemoTests(unittest.TestCase):
@@ -74,6 +89,22 @@ class FastSlowDemoTests(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(planner.calls, 1)
         self.assertTrue(any("fixed_slow_planner" in entry.message for entry in result.trace))
+
+    def test_fast_slow_returns_structured_failure_when_planner_errors(self) -> None:
+        result = run_scenario(FastSlowAgent(slow_planner=FailingSlowPlanner()), dynamic_event=True)
+        self.assertFalse(result.success)
+        self.assertEqual(result.slow_calls, 1)
+        self.assertIn("failing_slow_planner", result.failure_reason or "")
+        self.assertIn("vision request timed out", result.failure_reason or "")
+        self.assertFalse(result.trace[-1].success)
+
+    def test_fast_slow_records_safe_abstain_when_planner_declines(self) -> None:
+        result = run_scenario(FastSlowAgent(slow_planner=AbstainingSlowPlanner()), dynamic_event=True)
+        self.assertFalse(result.success)
+        self.assertEqual(result.slow_calls, 1)
+        self.assertIn("abstained", result.failure_reason or "")
+        self.assertEqual(result.trace[-1].mode, "abstain")
+        self.assertTrue(result.trace[-1].success)
 
     def test_fast_slow_does_not_delegate_when_world_is_stable(self) -> None:
         result = run_scenario(FastSlowAgent(), dynamic_event=False)

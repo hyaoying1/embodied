@@ -115,7 +115,8 @@ AI2-THOR integration test 默认跳过；设置 `RUN_THOR_INTEGRATION=1` 才会�
 - Always Fast 与 Fast–Slow Router 对照、完整 trace 和 self-contained HTML dashboard；
 - VLM candidate search 的请求、图像、响应格式和最小置信度约束；
 - 普通 Fast 动作仍是规则，不是学习策略；`TinyDelegationModel` 仅用于矛盾记忆的委托 gate；
-- 2D Agent loop 与 3D harness 尚未共享统一 environment adapter；3D VLM 选择当前是区域分类 gate，后续低层交互仍使用已知对象 ID 和 simulator bridge。
+- `AI2ThorEnvironment` 让 2D 与 3D 后端共享同一 Agent loop；既有 `thor_demo` 仍保留为独立 oracle/VLM validation harness；
+- `VisionSearchSlowPlanner` 是可注入的共享 loop 库接口，调用方负责候选图像采集；预编排 VLM CLI 仍由 `thor_demo --slow-brain vlm` 提供。
 
 ## 目录
 

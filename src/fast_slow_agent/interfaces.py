@@ -35,6 +35,14 @@ class AgentEnvironment(Protocol):
         """Return simulator truth for the explicitly labeled oracle planner."""
 
 
+class SlowPlannerError(RuntimeError):
+    """A recoverable domain failure from a delegated slow planner."""
+
+
+class SlowPlannerAbstained(SlowPlannerError):
+    """A slow planner intentionally declined to provide a subgoal."""
+
+
 @runtime_checkable
 class SlowPlanner(Protocol):
     """A replaceable slow reasoning layer for the shared agent loop."""

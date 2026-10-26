@@ -36,7 +36,13 @@ class BeliefMemory:
             and not result.success
             and result.observation.location == self.record.last_known_location
         )
-        if failed_expected_pickup:
+        inspected_expected_location_without_target = (
+            action.kind is ActionKind.INSPECT
+            and action.target == self.record.last_known_location
+            and result.success
+            and self.target_object not in result.observation.visible_objects
+        )
+        if failed_expected_pickup or inspected_expected_location_without_target:
             self.record.confidence = 0.18
             self.record.freshness = Freshness.CONTRADICTED
 

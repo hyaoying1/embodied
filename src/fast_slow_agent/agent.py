@@ -47,6 +47,8 @@ class AlwaysFastAgent(BaseAgent):
     name = "Always Fast"
 
     def run(self, environment: HouseholdEnvironment, *, max_steps: int = 12) -> EpisodeResult:
+        if max_steps <= 0:
+            raise ValueError("Maximum step budget must be positive.")
         memory = BeliefMemory()
         trace: list[TraceEntry] = []
         for _ in range(max_steps):
@@ -107,6 +109,8 @@ class FastSlowAgent(BaseAgent):
         self.slow_planner = OracleSlowPlanner()
 
     def run(self, environment: HouseholdEnvironment, *, max_steps: int = 12) -> EpisodeResult:
+        if max_steps <= 0:
+            raise ValueError("Maximum step budget must be positive.")
         memory = BeliefMemory()
         trace: list[TraceEntry] = []
         slow_calls = 0
@@ -140,7 +144,7 @@ class FastSlowAgent(BaseAgent):
                     environment,
                     decision,
                     success=True,
-                    message="Agent abstained because the slow-model budget is exhausted.",
+                    message=decision.reason,
                     memory=memory,
                     slow_calls=slow_calls,
                 )

@@ -5,17 +5,11 @@ from __future__ import annotations
 from .environment import DINING_TABLE, LEFT_CABINET, TARGET_OBJECT, HouseholdEnvironment
 from .learning import TinyDelegationModel
 from .memory import BeliefMemory
-from .models import Action, ActionKind, Decision, Freshness
+from .models import Action, ActionKind, BeliefRecord, Decision, Freshness
 
 
 class FastRouter:
-    """Fast policy plus a compact learned model for slow-model delegation.
-
-    Ordinary manipulation/navigation actions remain deterministic in this MVP.
-    The crucial ``act vs delegate`` decision is made by a fitted four-feature
-    logistic classifier. It is deliberately small enough to run without GPU or
-    external libraries, mirroring the role of a Jev-style fast decision layer.
-    """
+    """Deterministic fast policy with learned escalation for contradicted memory."""
 
     def __init__(
         self,
@@ -23,6 +17,8 @@ class FastRouter:
         slow_budget: int = 2,
         delegation_model: TinyDelegationModel | None = None,
     ) -> None:
+        if slow_budget < 0:
+            raise ValueError("Slow Brain budget cannot be negative.")
         self.slow_budget = slow_budget
         self.delegation_model = delegation_model or TinyDelegationModel.default()
 
@@ -68,23 +64,12 @@ class FastRouter:
             environment.step_count,
         )
         if record.freshness is Freshness.CONTRADICTED:
-            if (
-                slow_calls < self.slow_budget
-                and delegation_probability >= self.delegation_model.threshold
-            ):
-                return self._decision(
-                    Action(ActionKind.DELEGATE),
-                    delegation_probability,
-                    "delegate",
-                    "Memory conflicts with the inspected cabinet; "
-                    + self.delegation_model.describe(record, environment.step_count),
-                )
-            return self._decision(
-                Action(ActionKind.ABSTAIN),
-                1.0 - delegation_probability,
-                "abstain",
-                "Memory is contradicted but delegation is unavailable; "
-                + self.delegation_model.describe(record, environment.step_count),
+            return self._delegate_or_abstain(
+                record=record,
+                delegation_probability=delegation_probability,
+                current_step=environment.step_count,
+                slow_calls=slow_calls,
+                reason_prefix="Memory conflicts with the latest action outcome.",
             )
 
         location = record.last_known_location
@@ -96,6 +81,13 @@ class FastRouter:
                 "act",
                 f"Navigate to the last known target location: {location}.",
             )
+        if record.freshness is Freshness.UNVERIFIED:
+            return self._decision(
+                Action(ActionKind.INSPECT, location),
+                0.72,
+                "verify",
+                "Slow Brain location hint must be verified before attempting pickup.",
+            )
         if location not in environment.open_containers:
             return self._decision(
                 Action(ActionKind.INSPECT, location),
@@ -105,9 +97,40 @@ class FastRouter:
             )
         return self._decision(
             Action(ActionKind.PICK_UP, TARGET_OBJECT),
-            0.93 if record.freshness is Freshness.FRESH else 0.62,
+            0.93,
             "act",
             "The remembered target cabinet is open; attempt pickup.",
+        )
+
+    def _delegate_or_abstain(
+        self,
+        *,
+        record: BeliefRecord,
+        delegation_probability: float,
+        current_step: int,
+        slow_calls: int,
+        reason_prefix: str,
+    ) -> Decision:
+        model_detail = self.delegation_model.describe(record, current_step)
+        if slow_calls >= self.slow_budget:
+            return self._decision(
+                Action(ActionKind.ABSTAIN),
+                1.0 - delegation_probability,
+                "abstain",
+                f"{reason_prefix} Slow Brain budget exhausted; {model_detail}",
+            )
+        if delegation_probability < self.delegation_model.threshold:
+            return self._decision(
+                Action(ActionKind.ABSTAIN),
+                1.0 - delegation_probability,
+                "abstain",
+                f"{reason_prefix} Delegation probability is below the threshold; {model_detail}",
+            )
+        return self._decision(
+            Action(ActionKind.DELEGATE),
+            delegation_probability,
+            "delegate",
+            f"{reason_prefix} {model_detail}",
         )
 
     @staticmethod

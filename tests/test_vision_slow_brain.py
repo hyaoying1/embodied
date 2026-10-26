@@ -18,7 +18,10 @@ class FakeVisionClient:
         self.assessments = assessments
 
     def assess_candidate(self, *, task, candidate):
-        return self.assessments[candidate.label]
+        response = self.assessments[candidate.label]
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 class FakeHTTPResponse:
@@ -72,6 +75,57 @@ class VisionSlowBrainTests(unittest.TestCase):
             )
         self.assertEqual(result.selected_label, "counter_c")
         self.assertEqual(result.confidence, 0.88)
+        self.assertFalse(result.candidate_errors)
+        self.assertIsNone(result.abstain_reason)
+
+    def test_keeps_searching_after_a_candidate_request_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / "frame.png"
+            image.write_bytes(b"placeholder")
+            client = FakeVisionClient(
+                {
+                    "counter_a": RuntimeError("request timed out"),
+                    "counter_b": VisionAssessment(True, 0.81, "Target visible."),
+                }
+            )
+            result = VisionSearchSlowBrain(client).locate(
+                task="Find the target.",
+                candidates=[
+                    VisionCandidate("counter_a", (image,)),
+                    VisionCandidate("counter_b", (image,)),
+                ],
+            )
+        self.assertEqual(result.selected_label, "counter_b")
+        self.assertEqual(result.candidate_errors, {"counter_a": "request timed out"})
+        self.assertEqual(result.requests_used, 2)
+
+    def test_abstains_when_best_visible_candidate_is_below_confidence_threshold(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / "frame.png"
+            image.write_bytes(b"placeholder")
+            result = VisionSearchSlowBrain(
+                FakeVisionClient({"counter_a": VisionAssessment(True, 0.55, "Uncertain.")}),
+                min_confidence=0.6,
+            ).locate(
+                task="Find the target.",
+                candidates=[VisionCandidate("counter_a", (image,))],
+            )
+        self.assertIsNone(result.selected_label)
+        self.assertEqual(result.confidence, 0.55)
+        self.assertIn("below the minimum", result.abstain_reason or "")
+
+    def test_abstains_when_no_candidate_is_visually_positive(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / "frame.png"
+            image.write_bytes(b"placeholder")
+            result = VisionSearchSlowBrain(
+                FakeVisionClient({"counter_a": VisionAssessment(False, 0.9, "No mug.")})
+            ).locate(
+                task="Find the blue mug.",
+                candidates=[VisionCandidate("counter_a", (image,))],
+            )
+        self.assertIsNone(result.selected_label)
+        self.assertIn("No candidate", result.abstain_reason or "")
 
     def test_rejects_duplicate_candidate_labels_before_assessment(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -90,27 +144,16 @@ class VisionSlowBrainTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             image = Path(directory) / "frame.png"
             image.write_bytes(b"placeholder")
-            client = FakeVisionClient(
-                {"counter_a": VisionAssessment(True, float("nan"), "Blue mug visible.")}
-            )
-            with self.assertRaisesRegex(ValueError, "counter_a.*invalid confidence"):
-                VisionSearchSlowBrain(client).locate(
-                    task="Find the blue mug.",
-                    candidates=[VisionCandidate("counter_a", (image,))],
+            result = VisionSearchSlowBrain(
+                FakeVisionClient(
+                    {"counter_a": VisionAssessment(True, float("nan"), "Blue mug visible.")}
                 )
-
-    def test_fails_when_no_candidate_is_visually_positive(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            image = Path(directory) / "frame.png"
-            image.write_bytes(b"placeholder")
-            client = FakeVisionClient(
-                {"counter_a": VisionAssessment(False, 0.9, "No mug.")}
+            ).locate(
+                task="Find the blue mug.",
+                candidates=[VisionCandidate("counter_a", (image,))],
             )
-            with self.assertRaisesRegex(RuntimeError, "did not identify"):
-                VisionSearchSlowBrain(client).locate(
-                    task="Find the blue mug.",
-                    candidates=[VisionCandidate("counter_a", (image,))],
-                )
+        self.assertIsNone(result.selected_label)
+        self.assertIn("invalid confidence", result.candidate_errors["counter_a"])
 
 
 class OpenAICompatibleVisionClientTests(unittest.TestCase):
@@ -195,9 +238,7 @@ class VisionResponseValidationTests(unittest.TestCase):
             )
 
     def test_rejects_non_text_model_content(self) -> None:
-        response = FakeHTTPResponse(
-            {"choices": [{"message": {"content": None}}]}
-        )
+        response = FakeHTTPResponse({"choices": [{"message": {"content": None}}]})
         with tempfile.TemporaryDirectory() as directory:
             image = Path(directory) / "frame.png"
             image.write_bytes(b"placeholder")

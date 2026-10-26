@@ -34,10 +34,12 @@ class VisionAssessment:
 
 @dataclass(frozen=True)
 class VisionSearchResult:
-    selected_label: str
-    confidence: float
-    rationale: str
+    selected_label: str | None
+    confidence: float | None
+    rationale: str | None
     assessments: dict[str, VisionAssessment]
+    candidate_errors: dict[str, str]
+    abstain_reason: str | None
     requests_used: int
     images_used: int
 
@@ -82,12 +84,21 @@ class VisionSearchSlowBrain:
         *,
         max_requests: int = 3,
         max_images_per_candidate: int = 4,
+        min_confidence: float = 0.6,
     ) -> None:
         if max_requests <= 0 or max_images_per_candidate <= 0:
             raise ValueError("Visual search budgets must be positive.")
+        if (
+            isinstance(min_confidence, bool)
+            or not isinstance(min_confidence, (int, float))
+            or not math.isfinite(min_confidence)
+            or not 0 <= min_confidence <= 1
+        ):
+            raise ValueError("Visual search minimum confidence must be between 0 and 1.")
         self.client = client
         self.max_requests = max_requests
         self.max_images_per_candidate = max_images_per_candidate
+        self.min_confidence = float(min_confidence)
 
     def locate(self, *, task: str, candidates: Sequence[VisionCandidate]) -> VisionSearchResult:
         if not candidates:
@@ -106,26 +117,59 @@ class VisionSearchSlowBrain:
             raise ValueError("Selected visual candidate labels must be unique.")
 
         assessments: dict[str, VisionAssessment] = {}
+        candidate_errors: dict[str, str] = {}
         for candidate in bounded_candidates:
-            assessment = self.client.assess_candidate(task=task, candidate=candidate)
-            _validate_assessment(assessment, candidate_label=candidate.label)
+            try:
+                assessment = self.client.assess_candidate(task=task, candidate=candidate)
+                _validate_assessment(assessment, candidate_label=candidate.label)
+            except (OSError, RuntimeError, ValueError) as error:
+                candidate_errors[candidate.label] = str(error)
+                continue
             assessments[candidate.label] = assessment
 
+        requests_used = len(bounded_candidates)
+        images_used = sum(len(candidate.image_paths) for candidate in bounded_candidates)
         visible = [
             (label, assessment)
             for label, assessment in assessments.items()
             if assessment.target_visible
         ]
         if not visible:
-            raise RuntimeError("VLM did not identify the target in any candidate area.")
+            return VisionSearchResult(
+                selected_label=None,
+                confidence=None,
+                rationale=None,
+                assessments=assessments,
+                candidate_errors=candidate_errors,
+                abstain_reason="No candidate produced a positive visual assessment.",
+                requests_used=requests_used,
+                images_used=images_used,
+            )
+
         label, assessment = max(visible, key=lambda item: item[1].confidence)
+        if assessment.confidence < self.min_confidence:
+            return VisionSearchResult(
+                selected_label=None,
+                confidence=assessment.confidence,
+                rationale=assessment.rationale,
+                assessments=assessments,
+                candidate_errors=candidate_errors,
+                abstain_reason=(
+                    f"Best visible candidate {label!r} confidence {assessment.confidence:.2f} "
+                    f"is below the minimum {self.min_confidence:.2f}."
+                ),
+                requests_used=requests_used,
+                images_used=images_used,
+            )
         return VisionSearchResult(
             selected_label=label,
             confidence=assessment.confidence,
             rationale=assessment.rationale,
             assessments=assessments,
-            requests_used=len(bounded_candidates),
-            images_used=sum(len(candidate.image_paths) for candidate in bounded_candidates),
+            candidate_errors=candidate_errors,
+            abstain_reason=None,
+            requests_used=requests_used,
+            images_used=images_used,
         )
 
 

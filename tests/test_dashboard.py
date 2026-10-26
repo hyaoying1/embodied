@@ -11,7 +11,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Fast–Slow Embodied Agent", dashboard)
         self.assertIn("Always Fast with target move", dashboard)
         self.assertIn("Fast–Slow Router with target move", dashboard)
-        self.assertIn("Memory conflicts with the inspected cabinet", dashboard)
+        self.assertIn("Memory conflicts with the latest action outcome", dashboard)
 
     def test_dashboard_writes_self_contained_html_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

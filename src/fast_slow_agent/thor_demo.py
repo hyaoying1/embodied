@@ -222,10 +222,19 @@ class AI2ThorFastSlowDemo:
             raise RuntimeError("VLM mode was selected without a VisionSlowBrain.")
         candidates, frames = self._capture_candidate_views(controller, counters)
         result = self.vision_slow_brain.locate(task=TASK_DESCRIPTION, candidates=candidates)
+        if result.selected_label is None:
+            error_summary = "; ".join(
+                f"{label}: {error}" for label, error in result.candidate_errors.items()
+            ) or "none"
+            raise RuntimeError(
+                "VLM recovery search abstained. "
+                f"reason={result.abstain_reason}; candidate_errors={error_summary}; "
+                f"assessed_candidates={len(result.assessments)}"
+            )
         selected = next(counter for counter in counters if counter["objectId"] == result.selected_label)
         detail = (
             f"VLM selected {result.selected_label} with confidence={result.confidence:.2f}; "
-            f"rationale={result.rationale}"
+            f"rationale={result.rationale}; candidate_errors={len(result.candidate_errors)}"
         )
         return selected, detail, frames
 
@@ -310,7 +319,9 @@ class AI2ThorFastSlowDemo:
             horizons=[0],
             standings=[True],
         )
-        poses = event.metadata["actionReturn"]
+        if not event.metadata.get("lastActionSuccess", False):
+            raise RuntimeError(AI2ThorFastSlowDemo._failure_message(event, "Could not query interactable poses"))
+        poses = event.metadata.get("actionReturn")
         if not poses:
             raise RuntimeError(f"No interactable pose found for {object_id}.")
         return poses
@@ -321,13 +332,15 @@ class AI2ThorFastSlowDemo:
 
     @staticmethod
     def _teleport(controller: Any, pose: dict[str, Any]) -> None:
-        controller.step(
+        event = controller.step(
             action="TeleportFull",
             position={"x": pose["x"], "y": pose["y"], "z": pose["z"]},
             rotation={"x": 0, "y": pose["rotation"], "z": 0},
             horizon=pose["horizon"],
             standing=pose["standing"],
         )
+        if not event.metadata.get("lastActionSuccess", False):
+            raise RuntimeError(AI2ThorFastSlowDemo._failure_message(event, "Could not teleport"))
 
     @staticmethod
     def _move_mug_to_receptacle(controller: Any, mug_id: str, receptacle_id: str) -> None:
@@ -336,7 +349,11 @@ class AI2ThorFastSlowDemo:
             objectId=receptacle_id,
             anywhere=True,
         )
-        points = spawn_event.metadata["actionReturn"]
+        if not spawn_event.metadata.get("lastActionSuccess", False):
+            raise RuntimeError(
+                AI2ThorFastSlowDemo._failure_message(spawn_event, "Could not query receptacle spawn points")
+            )
+        points = spawn_event.metadata.get("actionReturn")
         if not points:
             raise RuntimeError(f"No clear spawn point found for {receptacle_id}.")
         event = controller.step(
@@ -346,7 +363,7 @@ class AI2ThorFastSlowDemo:
             forceKinematic=True,
             raise_for_failure=False,
         )
-        if not event.metadata["lastActionSuccess"]:
+        if not event.metadata.get("lastActionSuccess", False):
             raise RuntimeError(AI2ThorFastSlowDemo._failure_message(event, "Could not move mug"))
 
     def _save_frame(self, frame: Any, filename: str) -> Path:

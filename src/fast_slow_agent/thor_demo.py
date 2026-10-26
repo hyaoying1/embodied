@@ -31,7 +31,7 @@ class ThorDemoResult:
     scene: str
     source_counter_id: str
     moved_counter_id: str
-    selected_counter_id: str
+    selected_counter_id: str | None
     destination_counter_id: str
     slow_brain_mode: str
     slow_brain_detail: str
@@ -40,11 +40,13 @@ class ThorDemoResult:
     recovered_pickup_succeeded: bool
     placement_succeeded: bool
     frames: tuple[Path, ...]
+    failure_reason: str | None = None
 
     @property
     def success(self) -> bool:
         return (
-            self.source_pickup_failed
+            self.failure_reason is None
+            and self.source_pickup_failed
             and self.recovered_pickup_succeeded
             and self.placement_succeeded
         )
@@ -159,6 +161,22 @@ class AI2ThorFastSlowDemo:
                 oracle_moved_counter=moved,
             )
             frames.extend(search_frames)
+            if selected is None:
+                return ThorDemoResult(
+                    scene=self.scene,
+                    source_counter_id=source["objectId"],
+                    moved_counter_id=moved["objectId"],
+                    selected_counter_id=None,
+                    destination_counter_id=destination["objectId"],
+                    slow_brain_mode=self.slow_brain_mode,
+                    slow_brain_detail=slow_detail,
+                    delegate_probability=delegate_probability,
+                    source_pickup_failed=source_pickup_failed,
+                    recovered_pickup_succeeded=False,
+                    placement_succeeded=False,
+                    frames=tuple(frames),
+                    failure_reason=slow_detail,
+                )
             if selected["objectId"] != moved["objectId"]:
                 raise RuntimeError(
                     "Slow Brain selected the wrong counter area. "
@@ -214,7 +232,7 @@ class AI2ThorFastSlowDemo:
         *,
         counters: list[dict[str, Any]],
         oracle_moved_counter: dict[str, Any],
-    ) -> tuple[dict[str, Any], str, list[Path]]:
+    ) -> tuple[dict[str, Any] | None, str, list[Path]]:
         if self.slow_brain_mode == "oracle":
             return oracle_moved_counter, "oracle selected the known moved-target counter", []
 
@@ -226,11 +244,12 @@ class AI2ThorFastSlowDemo:
             error_summary = "; ".join(
                 f"{label}: {error}" for label, error in result.candidate_errors.items()
             ) or "none"
-            raise RuntimeError(
+            detail = (
                 "VLM recovery search abstained. "
                 f"reason={result.abstain_reason}; candidate_errors={error_summary}; "
                 f"assessed_candidates={len(result.assessments)}"
             )
+            return None, detail, frames
         selected = next(counter for counter in counters if counter["objectId"] == result.selected_label)
         detail = (
             f"VLM selected {result.selected_label} with confidence={result.confidence:.2f}; "
@@ -408,6 +427,8 @@ def main() -> None:
     print(f"destination={result.destination_counter_id}")
     print(f"delegate_probability={result.delegate_probability:.2f}")
     print(f"slow_brain_detail={result.slow_brain_detail}")
+    if result.failure_reason:
+        print(f"failure_reason={result.failure_reason}")
     print(f"success={result.success}")
     print("frames:")
     for frame in result.frames:

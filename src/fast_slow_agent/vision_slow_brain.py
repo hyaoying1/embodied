@@ -14,7 +14,7 @@ import os
 import re
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, Sequence
 
@@ -38,10 +38,10 @@ class VisionSearchResult:
     confidence: float | None
     rationale: str | None
     assessments: dict[str, VisionAssessment]
-    candidate_errors: dict[str, str]
-    abstain_reason: str | None
     requests_used: int
     images_used: int
+    candidate_errors: dict[str, str] = field(default_factory=dict)
+    abstain_reason: str | None = None
 
 
 class VisionClient(Protocol):

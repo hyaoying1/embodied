@@ -15,6 +15,7 @@ thor = ["ai2thor==5.0.0"]
 fast-slow-demo = "fast_slow_agent.cli:main"
 fast-slow-dashboard = "fast_slow_agent.dashboard:main"
 fast-slow-thor-demo = "fast_slow_agent.thor_demo:main"
+fast-slow-thor-agent-demo = "fast_slow_agent.thor_agent_demo:main"
 fast-slow-local-thor-demo = "fast_slow_agent.thor_local_demo:main"
 
 [tool.setuptools]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .environment import DINING_TABLE, LEFT_CABINET, TARGET_OBJECT, HouseholdEnvironment
+from .interfaces import AgentEnvironment, SlowPlanner
 from .memory import BeliefMemory
 from .models import Action, ActionKind, Decision, EpisodeResult, TraceEntry
 from .planner import OracleSlowPlanner
@@ -12,13 +12,13 @@ from .router import FastRouter
 class BaseAgent:
     name = "base"
 
-    def run(self, environment: HouseholdEnvironment, *, max_steps: int = 12) -> EpisodeResult:
+    def run(self, environment: AgentEnvironment, *, max_steps: int = 12) -> EpisodeResult:
         raise NotImplementedError
 
     @staticmethod
     def _trace(
         trace: list[TraceEntry],
-        environment: HouseholdEnvironment,
+        environment: AgentEnvironment,
         decision: Decision,
         *,
         success: bool,
@@ -46,10 +46,10 @@ class AlwaysFastAgent(BaseAgent):
 
     name = "Always Fast"
 
-    def run(self, environment: HouseholdEnvironment, *, max_steps: int = 12) -> EpisodeResult:
+    def run(self, environment: AgentEnvironment, *, max_steps: int = 12) -> EpisodeResult:
         if max_steps <= 0:
             raise ValueError("Maximum step budget must be positive.")
-        memory = BeliefMemory()
+        memory = BeliefMemory(target_object=environment.target_object)
         trace: list[TraceEntry] = []
         for _ in range(max_steps):
             decision = self._choose(environment, memory)
@@ -84,34 +84,39 @@ class AlwaysFastAgent(BaseAgent):
             event_triggered=environment.event_triggered,
         )
 
-    def _choose(self, environment: HouseholdEnvironment, memory: BeliefMemory) -> Decision:
-        if environment.holding == TARGET_OBJECT:
-            if environment.agent_location != DINING_TABLE:
-                return Decision(Action(ActionKind.NAVIGATE, DINING_TABLE), 0.98, "act", "Target held.")
-            return Decision(Action(ActionKind.PLACE, DINING_TABLE), 0.99, "act", "Place target.")
+    def _choose(self, environment: AgentEnvironment, memory: BeliefMemory) -> Decision:
+        if environment.holding == environment.target_object:
+            if environment.agent_location != environment.destination_location:
+                return Decision(Action(ActionKind.NAVIGATE, environment.destination_location), 0.98, "act", "Target held.")
+            return Decision(Action(ActionKind.PLACE, environment.destination_location), 0.99, "act", "Place target.")
         if memory.record is None:
-            if environment.agent_location != LEFT_CABINET:
-                return Decision(Action(ActionKind.NAVIGATE, LEFT_CABINET), 0.72, "act", "Initial search.")
-            return Decision(Action(ActionKind.INSPECT, LEFT_CABINET), 0.74, "act", "Inspect initial cabinet.")
+            if environment.agent_location != environment.initial_target_location:
+                return Decision(Action(ActionKind.NAVIGATE, environment.initial_target_location), 0.72, "act", "Initial search.")
+            return Decision(Action(ActionKind.INSPECT, environment.initial_target_location), 0.74, "act", "Inspect initial cabinet.")
         location = memory.record.last_known_location
         if environment.agent_location != location:
             return Decision(Action(ActionKind.NAVIGATE, location), 0.94, "act", "Trust last known location.")
         if location not in environment.open_containers:
             return Decision(Action(ActionKind.INSPECT, location), 0.94, "act", "Trust last known location.")
-        return Decision(Action(ActionKind.PICK_UP, TARGET_OBJECT), 0.96, "act", "Trust stale memory and retry pickup.")
+        return Decision(Action(ActionKind.PICK_UP, environment.target_object), 0.96, "act", "Trust stale memory and retry pickup.")
 
 
 class FastSlowAgent(BaseAgent):
     name = "Fast–Slow Router"
 
-    def __init__(self, *, slow_budget: int = 2) -> None:
+    def __init__(
+        self,
+        *,
+        slow_budget: int = 2,
+        slow_planner: SlowPlanner | None = None,
+    ) -> None:
         self.router = FastRouter(slow_budget=slow_budget)
-        self.slow_planner = OracleSlowPlanner()
+        self.slow_planner = slow_planner or OracleSlowPlanner()
 
-    def run(self, environment: HouseholdEnvironment, *, max_steps: int = 12) -> EpisodeResult:
+    def run(self, environment: AgentEnvironment, *, max_steps: int = 12) -> EpisodeResult:
         if max_steps <= 0:
             raise ValueError("Maximum step budget must be positive.")
-        memory = BeliefMemory()
+        memory = BeliefMemory(target_object=environment.target_object)
         trace: list[TraceEntry] = []
         slow_calls = 0
 

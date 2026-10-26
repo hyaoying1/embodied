@@ -8,7 +8,7 @@
 - **Slow Brain**：默认使用明确标注的 oracle planner 重新定位目标；可选 VLM 只用于 3D demo 的候选区域评估；
 - **Dynamic Event**：Agent 初次观察目标后，环境会在首次抓取前将目标从左柜移动到右柜。
 
-> 当前实现是可复现的机制 MVP，不是训练完成的 VLA。常规 CLI、dashboard 和单元测试运行在无外部依赖的 `HouseholdEnvironment` 上；AI2-THOR 是独立的预编排 3D validation harness，尚未作为 `FastSlowAgent` 的可替换 environment adapter。
+> 当前实现是可复现的机制 MVP，不是训练完成的 VLA。常规 CLI、dashboard 和单元测试运行在无外部依赖的 `HouseholdEnvironment` 上；`AI2ThorEnvironment` 已提供同一 AgentEnvironment 契约的 3D adapter，并支持显式配置的动态目标移动测试。既有 AI2-THOR demo 仍是独立的预编排 validation harness，尚未改为直接调用 `FastSlowAgent`。
 
 ## 运行
 
@@ -59,6 +59,12 @@ python3 -m venv .venv
 ```zsh
 PYTHONPATH=src .venv/bin/python -m fast_slow_agent.thor_demo
 open artifacts/thor
+```
+
+运行由共享 `FastSlowAgent` 直接驱动的 adapter episode：
+
+```zsh
+PYTHONPATH=src .venv/bin/python -m fast_slow_agent.thor_agent_demo
 ```
 
 该 harness 会建立一次初始观测、移动杯子、重放旧姿态制造抓取失败、验证委托分数，然后执行 oracle 或 VLM 区域选择。低层移动、抓取和放置仍由 AI2-THOR 的 `GetInteractablePoses` 与 `TeleportFull` bridge 完成；它不是学习到的视觉导航或抓取策略。

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .environment import DINING_TABLE, LEFT_CABINET, TARGET_OBJECT, HouseholdEnvironment
+from .interfaces import AgentEnvironment
 from .learning import TinyDelegationModel
 from .memory import BeliefMemory
 from .models import Action, ActionKind, BeliefRecord, Decision, Freshness
@@ -24,20 +24,20 @@ class FastRouter:
 
     def choose(
         self,
-        environment: HouseholdEnvironment,
+        environment: AgentEnvironment,
         memory: BeliefMemory,
         slow_calls: int,
     ) -> Decision:
-        if environment.holding == TARGET_OBJECT:
-            if environment.agent_location != DINING_TABLE:
+        if environment.holding == environment.target_object:
+            if environment.agent_location != environment.destination_location:
                 return self._decision(
-                    Action(ActionKind.NAVIGATE, DINING_TABLE),
+                    Action(ActionKind.NAVIGATE, environment.destination_location),
                     0.98,
                     "act",
                     "Target is held; move to the destination table.",
                 )
             return self._decision(
-                Action(ActionKind.PLACE, DINING_TABLE),
+                Action(ActionKind.PLACE, environment.destination_location),
                 0.99,
                 "act",
                 "Target is held at the destination table.",
@@ -45,15 +45,15 @@ class FastRouter:
 
         record = memory.record
         if record is None:
-            if environment.agent_location != LEFT_CABINET:
+            if environment.agent_location != environment.initial_target_location:
                 return self._decision(
-                    Action(ActionKind.NAVIGATE, LEFT_CABINET),
+                    Action(ActionKind.NAVIGATE, environment.initial_target_location),
                     0.72,
                     "observe",
                     "No target memory exists; inspect the initial likely cabinet.",
                 )
             return self._decision(
-                Action(ActionKind.INSPECT, LEFT_CABINET),
+                Action(ActionKind.INSPECT, environment.initial_target_location),
                 0.74,
                 "observe",
                 "Need an initial observation before acting on the target.",
@@ -96,7 +96,7 @@ class FastRouter:
                 "The target location has not been opened in this episode.",
             )
         return self._decision(
-            Action(ActionKind.PICK_UP, TARGET_OBJECT),
+            Action(ActionKind.PICK_UP, environment.target_object),
             0.93,
             "act",
             "The remembered target cabinet is open; attempt pickup.",

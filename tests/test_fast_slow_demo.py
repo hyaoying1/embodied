@@ -1,9 +1,15 @@
 import unittest
 
-from fast_slow_agent import AlwaysFastAgent, FastSlowAgent, HouseholdEnvironment, run_scenario
+from fast_slow_agent import (
+    AgentEnvironment,
+    AlwaysFastAgent,
+    FastSlowAgent,
+    HouseholdEnvironment,
+    run_scenario,
+)
 from fast_slow_agent.environment import LEFT_CABINET, RIGHT_CABINET, TARGET_OBJECT
 from fast_slow_agent.memory import BeliefMemory
-from fast_slow_agent.models import Action, ActionKind, Freshness
+from fast_slow_agent.models import Action, ActionKind, Freshness, SlowPlan
 from fast_slow_agent.router import FastRouter
 
 
@@ -17,7 +23,27 @@ class LowProbabilityDelegationModel:
         return "delegation_probability=0.10"
 
 
+class FixedSlowPlanner:
+    name = "fixed_slow_planner"
+
+    def __init__(self, location: str) -> None:
+        self.location = location
+        self.calls = 0
+
+    def resolve(self, environment) -> SlowPlan:
+        self.calls += 1
+        return SlowPlan(
+            target_location=self.location,
+            subgoal=f"search_{self.location}",
+            confidence=0.8,
+            source="test",
+        )
+
+
 class FastSlowDemoTests(unittest.TestCase):
+    def test_household_environment_implements_agent_protocol(self) -> None:
+        self.assertIsInstance(HouseholdEnvironment(), AgentEnvironment)
+
     def test_dynamic_event_moves_target_after_initial_observation(self) -> None:
         environment = HouseholdEnvironment(dynamic_event=True)
         environment.step(Action(ActionKind.NAVIGATE, LEFT_CABINET))
@@ -41,6 +67,13 @@ class FastSlowDemoTests(unittest.TestCase):
         self.assertTrue(result.event_triggered)
         self.assertEqual(result.slow_calls, 1)
         self.assertTrue(any(entry.mode == "delegate" for entry in result.trace))
+
+    def test_fast_slow_accepts_an_injected_slow_planner(self) -> None:
+        planner = FixedSlowPlanner(RIGHT_CABINET)
+        result = run_scenario(FastSlowAgent(slow_planner=planner), dynamic_event=True)
+        self.assertTrue(result.success)
+        self.assertEqual(planner.calls, 1)
+        self.assertTrue(any("fixed_slow_planner" in entry.message for entry in result.trace))
 
     def test_fast_slow_does_not_delegate_when_world_is_stable(self) -> None:
         result = run_scenario(FastSlowAgent(), dynamic_event=False)

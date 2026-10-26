@@ -20,6 +20,9 @@ ENTRY = "entry"
 class HouseholdEnvironment:
     """Small deterministic household task with an optional target-move event."""
 
+    target_object = TARGET_OBJECT
+    initial_target_location = LEFT_CABINET
+    destination_location = DINING_TABLE
     locations = frozenset({ENTRY, LEFT_CABINET, RIGHT_CABINET, DINING_TABLE})
 
     def __init__(self, *, dynamic_event: bool = True) -> None:

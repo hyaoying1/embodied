@@ -6,18 +6,18 @@ control flow. It is not presented as a real VLM or LLM capability.
 
 from __future__ import annotations
 
-from .environment import DINING_TABLE, HouseholdEnvironment
+from .interfaces import AgentEnvironment
 from .models import SlowPlan
 
 
 class OracleSlowPlanner:
     name = "oracle_slow_planner"
 
-    def resolve(self, environment: HouseholdEnvironment) -> SlowPlan:
+    def resolve(self, environment: AgentEnvironment) -> SlowPlan:
         location = environment.hidden_target_location()
         if location is None:
             return SlowPlan(
-                target_location=DINING_TABLE,
+                target_location=environment.destination_location,
                 subgoal="place_held_mug_on_table",
                 confidence=0.99,
             )
